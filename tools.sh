@@ -24,10 +24,10 @@ write_sysctl_config() {
     
     if is_debian13; then
         config_file="/etc/sysctl.d/99-${config_name}.conf"
-        echo -e "${Info} 检测到Debian 13系统，将配置写入 ${config_file}"
+        printf "%s 检测到Debian 13系统，将配置写入 %s\n" "${Info}" "${config_file}" >&2
     else
         config_file="/etc/sysctl.conf"
-        echo -e "${Info} 检测到非Debian 13系统，将配置写入 ${config_file}"
+        printf "%s 检测到非Debian 13系统，将配置写入 %s\n" "${Info}" "${config_file}" >&2
     fi
     
     # 确保目录存在
@@ -53,25 +53,25 @@ tcp_tune(){ # 优化TCP窗口
     local config_file
     config_file=$(write_sysctl_config "bbr")
     
-    # 删除现有配置
-    sed -i '/net.ipv4.tcp_no_metrics_save/d' "$config_file"
-    sed -i '/net.ipv4.tcp_ecn/d' "$config_file"
-    sed -i '/net.ipv4.tcp_frto/d' "$config_file"
-    sed -i '/net.ipv4.tcp_mtu_probing/d' "$config_file"
-    sed -i '/net.ipv4.tcp_rfc1337/d' "$config_file"
-    sed -i '/net.ipv4.tcp_sack/d' "$config_file"
-    sed -i '/net.ipv4.tcp_fack/d' "$config_file"
-    sed -i '/net.ipv4.tcp_window_scaling/d' "$config_file"
-    sed -i '/net.ipv4.tcp_adv_win_scale/d' "$config_file"
-    sed -i '/net.ipv4.tcp_moderate_rcvbuf/d' "$config_file"
-    sed -i '/net.ipv4.tcp_rmem/d' "$config_file"
-    sed -i '/net.ipv4.tcp_wmem/d' "$config_file"
-    sed -i '/net.core.rmem_max/d' "$config_file"
-    sed -i '/net.core.wmem_max/d' "$config_file"
-    sed -i '/net.ipv4.udp_rmem_min/d' "$config_file"
-    sed -i '/net.ipv4.udp_wmem_min/d' "$config_file"
-    sed -i '/net.core.default_qdisc/d' "$config_file"
-    sed -i '/net.ipv4.tcp_congestion_control/d' "$config_file"
+    # 删除现有配置（如果文件不存在则静默失败）
+    sed -i '/net.ipv4.tcp_no_metrics_save/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_ecn/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_frto/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_mtu_probing/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_rfc1337/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_sack/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_fack/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_window_scaling/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_adv_win_scale/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_moderate_rcvbuf/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_rmem/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_wmem/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.core.rmem_max/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.core.wmem_max/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.udp_rmem_min/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.udp_wmem_min/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.core.default_qdisc/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_congestion_control/d' "$config_file" 2>/dev/null || true
     
     # 写入新配置
     cat >> "$config_file" << EOF
@@ -103,11 +103,11 @@ enable_forwarding(){ #开启内核转发
     local config_file
     config_file=$(write_sysctl_config "forwarding")
     
-    # 删除现有配置
-    sed -i '/net.ipv4.conf.all.route_localnet/d' "$config_file"
-    sed -i '/net.ipv4.ip_forward/d' "$config_file"
-    sed -i '/net.ipv4.conf.all.forwarding/d' "$config_file"
-    sed -i '/net.ipv4.conf.default.forwarding/d' "$config_file"
+    # 删除现有配置（如果文件不存在则静默失败）
+    sed -i '/net.ipv4.conf.all.route_localnet/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.ip_forward/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.conf.all.forwarding/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.conf.default.forwarding/d' "$config_file" 2>/dev/null || true
     
     # 写入新配置
     cat >> "$config_file" << EOF
@@ -125,9 +125,9 @@ banping(){
     local config_file
     config_file=$(write_sysctl_config "banping")
     
-    # 删除现有配置
-    sed -i '/net.ipv4.icmp_echo_ignore_all/d' "$config_file"
-    sed -i '/net.ipv4.icmp_echo_ignore_broadcasts/d' "$config_file"
+    # 删除现有配置（如果文件不存在则静默失败）
+    sed -i '/net.ipv4.icmp_echo_ignore_all/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.icmp_echo_ignore_broadcasts/d' "$config_file" 2>/dev/null || true
     
     # 写入新配置
     cat >> "$config_file" << EOF
@@ -143,9 +143,9 @@ unbanping(){
     local config_file
     config_file=$(write_sysctl_config "banping")
     
-    # 删除禁止ping配置
-    sed -i '/net.ipv4.icmp_echo_ignore_all/d' "$config_file"
-    sed -i '/net.ipv4.icmp_echo_ignore_broadcasts/d' "$config_file"
+    # 删除禁止ping配置（如果文件不存在则静默失败）
+    sed -i '/net.ipv4.icmp_echo_ignore_all/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.icmp_echo_ignore_broadcasts/d' "$config_file" 2>/dev/null || true
     
     # 写入允许ping配置
     cat >> "$config_file" << EOF
