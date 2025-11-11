@@ -314,6 +314,289 @@ get_system_info() {
   virt_check
 }
 
+# 检测系统内存大小（字节）
+detect_memory() {
+    local mem_bytes
+    mem_bytes=$(free --bytes | awk '/Mem:/ {print $2}')
+    echo "$mem_bytes"
+}
+
+# 根据内存大小确定优化级别
+get_optimization_level() {
+    local mem_bytes=$1
+    local mem_gb=$((mem_bytes / 1024 / 1024 / 1024))
+    
+    if [[ $mem_gb -ge 4 ]]; then
+        echo "aggressive"  # 激进优化 ≥4GB
+    elif [[ $mem_gb -ge 1 ]]; then
+        echo "balanced"    # 平衡优化 1-4GB
+    else
+        echo "conservative" # 保守优化 <1GB
+    fi
+}
+
+# 全面系统优化（智能分级）
+comprehensive_tune() {
+    local config_file
+    config_file=$(write_sysctl_config "comprehensive")
+    
+    printf "%s 开始全面系统优化...\n" "${Info}"
+    
+    # 检测内存和优化级别
+    local mem_bytes
+    mem_bytes=$(detect_memory)
+    local optimization_level
+    optimization_level=$(get_optimization_level "$mem_bytes")
+    local mem_gb=$((mem_bytes / 1024 / 1024 / 1024))
+    
+    printf "%s 检测到系统内存: %d GB，使用 %s 优化级别\n" "${Info}" "$mem_gb" "$optimization_level"
+    
+    # 安装和配置随机数生成器（参考 optimize.sh）
+    printf "%s 优化随机数生成器...\n" "${Info}"
+    if [[ -z "$(command -v haveged)" ]]; then
+        printf "%s 安装 haveged 改善随机数生成器性能\n" "${Info}"
+        apt install haveged -y > /dev/null 2>&1 && systemctl enable haveged > /dev/null 2>&1
+    fi
+    if [[ -z "$(command -v rngd)" ]]; then
+        printf "%s 安装 rng-tools 改善随机数生成器性能\n" "${Info}"
+        apt install rng-tools -y > /dev/null 2>&1 && systemctl enable rng-tools > /dev/null 2>&1
+    fi
+    
+    # 禁用 KSM（参考 optimize.sh）
+    printf "%s 禁用 KSM 调优...\n" "${Info}"
+    if [[ ! -z "$(command -v ksmtuned)" ]]; then
+        echo 2 > /sys/kernel/mm/ksm/run 2>/dev/null || true
+        apt purge tuned --autoremove -y > /dev/null 2>&1 || true
+        apt purge ksmtuned --autoremove -y > /dev/null 2>&1 || true
+        rm -rf /etc/systemd/system/ksmtuned.service 2>/dev/null || true
+        mv /usr/sbin/ksmtuned /usr/sbin/ksmtuned.bak 2>/dev/null || true
+        touch /usr/sbin/ksmtuned 2>/dev/null || true
+        echo "# KSMTUNED DISABLED" > /usr/sbin/ksmtuned 2>/dev/null || true
+    fi
+    
+    # 禁用透明大页面（参考 optimize.sh）
+    printf "%s 禁用透明大页面...\n" "${Info}"
+    cat > /etc/systemd/system/disable-transparent-huge-pages.service << EOF
+[Unit]
+Description=Disable Transparent Huge Pages (THP)
+DefaultDependencies=no
+After=sysinit.target local-fs.target
+Before=mongod.service
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo never | tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null'
+ExecStart=/bin/sh -c 'echo never | tee /sys/kernel/mm/transparent_hugepage/defrag > /dev/null'
+[Install]
+WantedBy=basic.target
+EOF
+    
+    systemctl daemon-reload > /dev/null 2>&1
+    systemctl start disable-transparent-huge-pages > /dev/null 2>&1
+    systemctl enable disable-transparent-huge-pages > /dev/null 2>&1
+    
+    # 删除现有 sysctl 配置
+    sed -i '/# 全面系统优化配置/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.core.netdev_max_backlog/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.core.somaxconn/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.conf.all.rp_filter/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.conf.default.rp_filter/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.ip_default_ttl/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_abort_on_overflow/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_adv_win_scale/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_autocorking/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_base_mss/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_collapse_max_bytes/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_dsack/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_fastopen/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_fastopen_blackhole_timeout_sec/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_fin_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_keepalive_intvl/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_keepalive_probes/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_keepalive_time/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_max_orphans/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_max_syn_backlog/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_max_tw_buckets/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_no_ssthresh_metrics_save/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_slow_start_after_idle/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_orphan_retries/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_retries1/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_retries2/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_rfc1337/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_shrink_window/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_syn_retries/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_synack_retries/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_syncookies/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_timestamps/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_tw_reuse/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_notsent_lowat/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_low_latency/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv6.conf.all.forwarding/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv6.conf.default.forwarding/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_generic_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_gre_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_gre_timeout_stream/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_icmp_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_icmpv6_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_max/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_close/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_close_wait/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_established/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_fin_wait/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_last_ack/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_max_retrans/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_syn_recv/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_syn_sent/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_time_wait/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_tcp_timeout_unacknowledged/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_udp_timeout/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.netfilter.nf_conntrack_udp_timeout_stream/d' "$config_file" 2>/dev/null || true
+    sed -i '/vm.overcommit_memory/d' "$config_file" 2>/dev/null || true
+    sed -i '/vm.swappiness/d' "$config_file" 2>/dev/null || true
+    sed -i '/net.ipv4.tcp_mem/d' "$config_file" 2>/dev/null || true
+    
+    # 根据优化级别设置参数
+    local rmem_max wmem_max conntrack_max
+    case "$optimization_level" in
+        "aggressive")
+            rmem_max=536870912    # 512MB
+            wmem_max=536870912    # 512MB
+            conntrack_max=1048576 # 100万连接
+            ;;
+        "balanced")
+            rmem_max=268435456    # 256MB
+            wmem_max=268435456    # 256MB
+            conntrack_max=524288  # 50万连接
+            ;;
+        "conservative")
+            rmem_max=134217728    # 128MB
+            wmem_max=134217728    # 128MB
+            conntrack_max=209715  # 20万连接
+            ;;
+    esac
+    
+    # 计算 TCP 内存参数（基于系统内存）
+    local page_size
+    page_size=$(getconf PAGESIZE)
+    local pages=$((mem_bytes / page_size))
+    local tcp_mem_min=$((pages / 100 * 12))
+    local tcp_mem_default=$((pages / 100 * 50))
+    local tcp_mem_max=$((pages / 100 * 70))
+    
+    # 写入新配置
+    cat >> "$config_file" << EOF
+# 全面系统优化配置
+# 优化级别: $optimization_level (内存: ${mem_gb}GB)
+kernel.panic = 1
+kernel.task_delayacct = 1
+net.core.netdev_max_backlog = 32768
+net.core.default_qdisc = fq
+net.core.somaxconn = 32768
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.ip_default_ttl = 128
+net.ipv4.ip_forward = 1
+net.ipv4.ip_local_port_range = 10240 65535
+net.ipv4.tcp_abort_on_overflow = 0
+net.ipv4.tcp_adv_win_scale = -2
+net.ipv4.tcp_autocorking = 1
+net.ipv4.tcp_base_mss = 1024
+net.ipv4.tcp_collapse_max_bytes = 6291456
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_dsack = 1
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_fastopen = 1027
+net.ipv4.tcp_fastopen_blackhole_timeout_sec = 10
+net.ipv4.tcp_fin_timeout = 3
+net.ipv4.tcp_frto = 1
+net.ipv4.tcp_keepalive_intvl = 2
+net.ipv4.tcp_keepalive_probes = 2
+net.ipv4.tcp_keepalive_time = 120
+net.ipv4.tcp_max_orphans = 8192
+net.ipv4.tcp_max_syn_backlog = 16384
+net.ipv4.tcp_max_tw_buckets = 4096
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_no_ssthresh_metrics_save = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_orphan_retries = 4
+net.ipv4.tcp_retries1 = 2
+net.ipv4.tcp_retries2 = 2
+net.ipv4.tcp_rfc1337 = 1
+net.core.rmem_default = 262144
+net.core.rmem_max = $rmem_max
+net.ipv4.tcp_rmem = 8192 262144 $rmem_max
+net.core.wmem_default = 16384
+net.core.wmem_max = $wmem_max
+net.ipv4.tcp_wmem = 4096 16384 $wmem_max
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_syn_retries = 2
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_no_metrics_save = 0
+net.ipv4.tcp_notsent_lowat = 131072
+net.ipv4.tcp_low_latency = 1
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 4096
+net.ipv4.route.flush = 1
+net.ipv6.conf.all.forwarding = 1
+net.ipv6.conf.default.forwarding = 1
+net.netfilter.nf_conntrack_generic_timeout = 10
+net.netfilter.nf_conntrack_gre_timeout = 5
+net.netfilter.nf_conntrack_gre_timeout_stream = 30
+net.netfilter.nf_conntrack_icmp_timeout = 5
+net.netfilter.nf_conntrack_icmpv6_timeout = 5
+net.netfilter.nf_conntrack_max = $conntrack_max
+net.netfilter.nf_conntrack_tcp_timeout_close = 5
+net.netfilter.nf_conntrack_tcp_timeout_close_wait = 5
+net.netfilter.nf_conntrack_tcp_timeout_established = 600
+net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_last_ack = 5
+net.netfilter.nf_conntrack_tcp_timeout_max_retrans = 5
+net.netfilter.nf_conntrack_tcp_timeout_syn_recv = 5
+net.netfilter.nf_conntrack_tcp_timeout_syn_sent = 5
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 15
+net.netfilter.nf_conntrack_tcp_timeout_unacknowledged = 5
+net.netfilter.nf_conntrack_udp_timeout = 5
+net.netfilter.nf_conntrack_udp_timeout_stream = 60
+vm.overcommit_memory = 1
+vm.swappiness = 0
+net.ipv4.tcp_mem = $tcp_mem_min $tcp_mem_default $tcp_mem_max
+EOF
+    
+    # 加载内核模块
+    printf "%s 加载内核模块...\n" "${Info}"
+    echo "nf_conntrack" > /usr/lib/modules-load.d/sukka-network-optimized.conf 2>/dev/null || true
+    echo "tls" >> /usr/lib/modules-load.d/sukka-network-optimized.conf 2>/dev/null || true
+    
+    # 应用配置
+    sysctl -p "$config_file" > /dev/null 2>&1
+    sysctl --system > /dev/null 2>&1
+    
+    # 调整 journald 配置（参考 optimize.sh）
+    printf "%s 调整 journald 配置...\n" "${Info}"
+    cat > /etc/systemd/journald.conf <<EOF
+[Journal]
+SystemMaxUse=384M
+SystemMaxFileSize=128M
+SystemMaxFiles=3
+RuntimeMaxUse=256M
+RuntimeMaxFileSize=128M
+RuntimeMaxFiles=3
+MaxRetentionSec=86400
+MaxFileSec=259200
+ForwardToSyslog=no
+EOF
+    
+    # 重启 journald 服务
+    systemctl restart systemd-journald > /dev/null 2>&1
+    
+    printf "%s 全面系统优化完成！优化级别: %s\n" "${Info}" "$optimization_level"
+    printf "%s 已优化: 随机数生成器、KSM、大页面、网络参数、连接跟踪、内存管理、日志系统\n" "${Info}"
+}
+
 menu() {
   echo -e "\
 ${Green_font_prefix}0.${Font_color_suffix} 升级脚本
@@ -322,6 +605,7 @@ ${Green_font_prefix}2.${Font_color_suffix} TCP窗口调优
 ${Green_font_prefix}3.${Font_color_suffix} 开启内核转发
 ${Green_font_prefix}4.${Font_color_suffix} 系统资源限制调优
 ${Green_font_prefix}5.${Font_color_suffix} 屏蔽ICMP ${Green_font_prefix}6.${Font_color_suffix} 开放ICMP
+${Green_font_prefix}7.${Font_color_suffix} 全面系统优化(基于内存智能分级)
 "
 
 get_system_info
@@ -350,6 +634,9 @@ echo -e "当前系统信息: ${Font_color_suffix}$opsy ${Green_font_prefix}$virt
     ;;
   6)
     unbanping
+    ;;
+  7)
+    comprehensive_tune
     ;;
   *)
   clear
